@@ -10,7 +10,6 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocket.Server({ server });
 
-// Arquivos JSON
 const usersFile = path.join(__dirname, "users.json");
 const messagesFile = path.join(__dirname, "messages.json");
 
@@ -27,7 +26,6 @@ if (fs.existsSync(messagesFile)) {
   mensagens = JSON.parse(fs.readFileSync(messagesFile, "utf8"));
 }
 
-// Salvar dados
 function salvarUsuarios() {
   fs.writeFileSync(usersFile, JSON.stringify(usuarios, null, 2));
 }
@@ -36,7 +34,16 @@ function salvarMensagens() {
   fs.writeFileSync(messagesFile, JSON.stringify(mensagens, null, 2));
 }
 
-let conectados = new Map();
+let conectados = new Map(); // ws -> {username, avatar}
+
+function atualizarLista() {
+  const lista = Array.from(conectados.values());
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify({ type: "user_list", users: lista }));
+    }
+  });
+}
 
 wss.on("connection", (ws) => {
   console.log("Novo cliente conectado!");
@@ -50,7 +57,6 @@ wss.on("connection", (ws) => {
       return;
     }
 
-    // LOGIN
     if (msg.type === "login") {
       const { username, password, avatar } = msg;
 
@@ -59,42 +65,38 @@ wss.on("connection", (ws) => {
       }
 
       if (usuarios[username] && usuarios[username].password !== password) {
-        return ws.send(JSON.stringify({ type: "error", text: "Nome de usuário já está em uso!" }));
+        return ws.send(JSON.stringify({ type: "error", text: "Senha incorreta!" }));
       }
 
-      usuarios[username] = { password, avatar: avatar || null };
+      usuarios[username] = { password, avatar: avatar || "https://i.imgur.com/6VBx3io.png" };
       salvarUsuarios();
-      conectados.set(ws, username);
+      conectados.set(ws, { username, avatar: usuarios[username].avatar });
 
       ws.send(JSON.stringify({ type: "login_success", username }));
 
       mensagens.forEach((m) => ws.send(JSON.stringify({ type: "message", text: m.text, avatar: m.avatar })));
+
+      atualizarLista();
       return;
     }
 
-    // BLOQUEIO sem login
     if (!conectados.has(ws)) {
       return ws.send(JSON.stringify({ type: "error", text: "Você precisa fazer login primeiro!" }));
     }
 
-    // MENSAGENS
     if (msg.type === "message") {
-      const username = conectados.get(ws);
-      let texto = msg.text.trim();
+      const { username, avatar } = conectados.get(ws);
+      if (!msg.text || msg.text.length > 70) return;
 
-      if (texto.length > 70) {
-        return ws.send(JSON.stringify({ type: "error", text: "Mensagem muito longa (máx 70 caracteres)." }));
-      }
+      const texto = `${username}: ${msg.text}`;
+      const mensagem = { text: texto, avatar };
+      mensagens.push(mensagem);
 
-      const avatar = usuarios[username]?.avatar || null;
-      const mensagemFinal = { text: `${username}: ${texto}`, avatar };
-
-      mensagens.push(mensagemFinal);
       salvarMensagens();
 
       wss.clients.forEach((client) => {
         if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify({ type: "message", text: mensagemFinal.text, avatar: mensagemFinal.avatar }));
+          client.send(JSON.stringify({ type: "message", text: texto, avatar }));
         }
       });
     }
@@ -102,6 +104,7 @@ wss.on("connection", (ws) => {
 
   ws.on("close", () => {
     conectados.delete(ws);
+    atualizarLista();
     console.log("Cliente desconectado");
   });
 });
