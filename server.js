@@ -10,7 +10,7 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocket.Server({ server });
 
-// Carrega dados dos arquivos JSON
+// Arquivos JSON
 const usersFile = path.join(__dirname, "users.json");
 const messagesFile = path.join(__dirname, "messages.json");
 
@@ -27,17 +27,15 @@ if (fs.existsSync(messagesFile)) {
   mensagens = JSON.parse(fs.readFileSync(messagesFile, "utf8"));
 }
 
-// Função para salvar usuários
+// Salvar dados
 function salvarUsuarios() {
   fs.writeFileSync(usersFile, JSON.stringify(usuarios, null, 2));
 }
 
-// Função para salvar mensagens
 function salvarMensagens() {
   fs.writeFileSync(messagesFile, JSON.stringify(mensagens, null, 2));
 }
 
-// Guardar conexões
 let conectados = new Map();
 
 wss.on("connection", (ws) => {
@@ -52,51 +50,51 @@ wss.on("connection", (ws) => {
       return;
     }
 
-    // Etapa 1: login
+    // LOGIN
     if (msg.type === "login") {
-      const { username, password } = msg;
+      const { username, password, avatar } = msg;
 
       if (!username || username.length > 28) {
         return ws.send(JSON.stringify({ type: "error", text: "Nome inválido (máx 28 caracteres)" }));
       }
 
-      if (usuarios[username] && usuarios[username] !== password) {
+      if (usuarios[username] && usuarios[username].password !== password) {
         return ws.send(JSON.stringify({ type: "error", text: "Nome de usuário já está em uso!" }));
       }
 
-      usuarios[username] = password;
+      usuarios[username] = { password, avatar: avatar || null };
       salvarUsuarios();
       conectados.set(ws, username);
 
       ws.send(JSON.stringify({ type: "login_success", username }));
 
-      mensagens.forEach((m) => ws.send(JSON.stringify({ type: "message", text: m })));
+      mensagens.forEach((m) => ws.send(JSON.stringify({ type: "message", text: m.text, avatar: m.avatar })));
       return;
     }
 
-    // Bloqueia quem não logou
+    // BLOQUEIO sem login
     if (!conectados.has(ws)) {
       return ws.send(JSON.stringify({ type: "error", text: "Você precisa fazer login primeiro!" }));
     }
 
-    // Etapa 2: mensagens
+    // MENSAGENS
     if (msg.type === "message") {
       const username = conectados.get(ws);
       let texto = msg.text.trim();
 
-      // 🔴 Limite de 70 caracteres
       if (texto.length > 70) {
         return ws.send(JSON.stringify({ type: "error", text: "Mensagem muito longa (máx 70 caracteres)." }));
       }
 
-      const mensagemFinal = `${username}: ${texto}`;
-      mensagens.push(mensagemFinal);
+      const avatar = usuarios[username]?.avatar || null;
+      const mensagemFinal = { text: `${username}: ${texto}`, avatar };
 
+      mensagens.push(mensagemFinal);
       salvarMensagens();
 
       wss.clients.forEach((client) => {
         if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify({ type: "message", text: mensagemFinal }));
+          client.send(JSON.stringify({ type: "message", text: mensagemFinal.text, avatar: mensagemFinal.avatar }));
         }
       });
     }
