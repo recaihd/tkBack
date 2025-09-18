@@ -12,6 +12,12 @@ const wss = new WebSocket.Server({ server });
 
 const usersFile = path.join(__dirname, "users.json");
 const messagesFile = path.join(__dirname, "messages.json");
+const uploadsDir = path.join(__dirname, "uploads");
+
+// Criar pasta uploads se não existir
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir);
+}
 
 let usuarios = {};
 let mensagens = [];
@@ -57,6 +63,7 @@ wss.on("connection", (ws) => {
       return;
     }
 
+    // LOGIN
     if (msg.type === "login") {
       const { username, password, avatar } = msg;
 
@@ -64,17 +71,25 @@ wss.on("connection", (ws) => {
         return ws.send(JSON.stringify({ type: "error", text: "Nome inválido (máx 28 caracteres)" }));
       }
 
-      if (usuarios[username] && usuarios[username].password !== password) {
-        return ws.send(JSON.stringify({ type: "error", text: "Senha incorreta!" }));
+      if (usuarios[username]) {
+        // Usuário já existe -> validar senha
+        if (usuarios[username].password !== password) {
+          return ws.send(JSON.stringify({ type: "error", text: "Senha incorreta para este usuário!" }));
+        }
+      } else {
+        // Criar novo usuário
+        usuarios[username] = { 
+          password, 
+          avatar: avatar || "https://i.imgur.com/6VBx3io.png" 
+        };
+        salvarUsuarios();
       }
 
-      usuarios[username] = { password, avatar: avatar || "https://i.imgur.com/6VBx3io.png" };
-      salvarUsuarios();
       conectados.set(ws, { username, avatar: usuarios[username].avatar });
 
       ws.send(JSON.stringify({ type: "login_success", username }));
 
-      mensagens.forEach((m) => ws.send(JSON.stringify({ type: "message", text: m.text, avatar: m.avatar })));
+      mensagens.forEach((m) => ws.send(JSON.stringify(m)));
 
       atualizarLista();
       return;
@@ -84,19 +99,45 @@ wss.on("connection", (ws) => {
       return ws.send(JSON.stringify({ type: "error", text: "Você precisa fazer login primeiro!" }));
     }
 
+    // ENVIAR MENSAGEM
     if (msg.type === "message") {
       const { username, avatar } = conectados.get(ws);
       if (!msg.text || msg.text.length > 70) return;
 
-      const texto = `${username}: ${msg.text}`;
-      const mensagem = { text: texto, avatar };
-      mensagens.push(mensagem);
+      // Transformar links em clicáveis
+      let texto = msg.text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
 
+      const mensagem = { type: "message", text: `${username}: ${texto}`, avatar };
+      mensagens.push(mensagem);
       salvarMensagens();
 
       wss.clients.forEach((client) => {
         if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify({ type: "message", text: texto, avatar }));
+          client.send(JSON.stringify(mensagem));
+        }
+      });
+    }
+
+    // ENVIAR ARQUIVO
+    if (msg.type === "file") {
+      const { username, avatar } = conectados.get(ws);
+      if (!msg.name || !msg.data) return;
+
+      const filePath = path.join(uploadsDir, msg.name);
+      fs.writeFileSync(filePath, Buffer.from(msg.data, "base64"));
+
+      const fileUrl = `/uploads/${msg.name}`;
+      const mensagem = { 
+        type: "message", 
+        text: `${username}: <a href="${fileUrl}" target="_blank">${msg.name}</a>`, 
+        avatar 
+      };
+      mensagens.push(mensagem);
+      salvarMensagens();
+
+      wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify(mensagem));
         }
       });
     }
