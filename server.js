@@ -82,14 +82,21 @@ wss.on("connection", (ws) => {
     // Etapa 2: mensagens
     if (msg.type === "message") {
       const username = conectados.get(ws);
-      const texto = `${username}: ${msg.text}`;
-      mensagens.push(texto);
+      let texto = msg.text.trim();
+
+      // 🔴 Limite de 70 caracteres
+      if (texto.length > 70) {
+        return ws.send(JSON.stringify({ type: "error", text: "Mensagem muito longa (máx 70 caracteres)." }));
+      }
+
+      const mensagemFinal = `${username}: ${texto}`;
+      mensagens.push(mensagemFinal);
 
       salvarMensagens();
 
       wss.clients.forEach((client) => {
         if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify({ type: "message", text: texto }));
+          client.send(JSON.stringify({ type: "message", text: mensagemFinal }));
         }
       });
     }
