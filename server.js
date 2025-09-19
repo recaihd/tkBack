@@ -2,21 +2,24 @@ const WebSocket = require("ws");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const express = require("express");
 
-const server = http.createServer((req, res) => {
-  res.writeHead(200);
-  res.end("Servidor de chat em tempo real rodando 🚀");
-});
-
+const app = express();
+const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const usersFile = path.join(__dirname, "users.json");
-const messagesFile = path.join(__dirname, "messages.json");
+// expor uploads como arquivos estáticos
 const uploadsDir = path.join(__dirname, "uploads");
-
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
+app.use("/uploads", express.static(uploadsDir));
+
+// URL pública do backend na Render
+const BASE_URL = process.env.BASE_URL || "https://tkback.onrender.com";
+
+const usersFile = path.join(__dirname, "users.json");
+const messagesFile = path.join(__dirname, "messages.json");
 
 let usuarios = {};
 let mensagens = [];
@@ -70,7 +73,7 @@ wss.on("connection", (ws) => {
       if (avatarFile) {
         const avatarPath = path.join(uploadsDir, "avatar_" + username + path.extname(avatarFile.name));
         fs.writeFileSync(avatarPath, Buffer.from(avatarFile.data, "base64"));
-        avatar = "/uploads/" + path.basename(avatarPath);
+        avatar = `${BASE_URL}/uploads/${path.basename(avatarPath)}`;
       }
 
       if (usuarios[username]) {
@@ -123,7 +126,7 @@ wss.on("connection", (ws) => {
       const filePath = path.join(uploadsDir, msg.name);
       fs.writeFileSync(filePath, Buffer.from(msg.data, "base64"));
 
-      const fileUrl = `/uploads/${msg.name}`;
+      const fileUrl = `${BASE_URL}/uploads/${msg.name}`;
       let conteudo;
 
       if (/\.(png|jpe?g|gif)$/i.test(msg.name)) {
