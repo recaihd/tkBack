@@ -14,7 +14,6 @@ const usersFile = path.join(__dirname, "users.json");
 const messagesFile = path.join(__dirname, "messages.json");
 const uploadsDir = path.join(__dirname, "uploads");
 
-// Criar pasta uploads se não existir
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
@@ -22,12 +21,9 @@ if (!fs.existsSync(uploadsDir)) {
 let usuarios = {};
 let mensagens = [];
 
-// Carregar usuários
 if (fs.existsSync(usersFile)) {
   usuarios = JSON.parse(fs.readFileSync(usersFile, "utf8"));
 }
-
-// Carregar mensagens
 if (fs.existsSync(messagesFile)) {
   mensagens = JSON.parse(fs.readFileSync(messagesFile, "utf8"));
 }
@@ -65,19 +61,23 @@ wss.on("connection", (ws) => {
 
     // LOGIN
     if (msg.type === "login") {
-      const { username, password, avatar } = msg;
+      let { username, password, avatar, avatarFile } = msg;
 
       if (!username || username.length > 28) {
         return ws.send(JSON.stringify({ type: "error", text: "Nome inválido (máx 28 caracteres)" }));
       }
 
+      if (avatarFile) {
+        const avatarPath = path.join(uploadsDir, "avatar_" + username + path.extname(avatarFile.name));
+        fs.writeFileSync(avatarPath, Buffer.from(avatarFile.data, "base64"));
+        avatar = "/uploads/" + path.basename(avatarPath);
+      }
+
       if (usuarios[username]) {
-        // Usuário já existe -> validar senha
         if (usuarios[username].password !== password) {
           return ws.send(JSON.stringify({ type: "error", text: "Senha incorreta para este usuário!" }));
         }
       } else {
-        // Criar novo usuário
         usuarios[username] = { 
           password, 
           avatar: avatar || "https://i.imgur.com/6VBx3io.png" 
@@ -86,11 +86,9 @@ wss.on("connection", (ws) => {
       }
 
       conectados.set(ws, { username, avatar: usuarios[username].avatar });
-
       ws.send(JSON.stringify({ type: "login_success", username }));
 
       mensagens.forEach((m) => ws.send(JSON.stringify(m)));
-
       atualizarLista();
       return;
     }
@@ -104,7 +102,6 @@ wss.on("connection", (ws) => {
       const { username, avatar } = conectados.get(ws);
       if (!msg.text || msg.text.length > 70) return;
 
-      // Transformar links em clicáveis
       let texto = msg.text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
 
       const mensagem = { type: "message", text: `${username}: ${texto}`, avatar };
@@ -127,9 +124,17 @@ wss.on("connection", (ws) => {
       fs.writeFileSync(filePath, Buffer.from(msg.data, "base64"));
 
       const fileUrl = `/uploads/${msg.name}`;
+      let conteudo;
+
+      if (/\.(png|jpe?g|gif)$/i.test(msg.name)) {
+        conteudo = `<img src="${fileUrl}" alt="${msg.name}" style="max-width:200px; max-height:200px; border-radius:8px;">`;
+      } else {
+        conteudo = `<a href="${fileUrl}" target="_blank">${msg.name}</a>`;
+      }
+
       const mensagem = { 
         type: "message", 
-        text: `${username}: <a href="${fileUrl}" target="_blank">${msg.name}</a>`, 
+        text: `${username}: ${conteudo}`, 
         avatar 
       };
       mensagens.push(mensagem);
