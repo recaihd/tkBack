@@ -83,7 +83,7 @@ wss.on("connection", (ws) => {
       } else {
         usuarios[username] = { 
           password, 
-          avatar: avatar || "https://i.imgur.com/6VBx3io.png" 
+          avatar: avatar || "./img/redetekiIcon2.png" 
         };
         salvarUsuarios();
       }
