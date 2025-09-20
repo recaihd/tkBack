@@ -8,14 +8,28 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// expor uploads como arquivos estáticos
+// -------------------- Heartbeat --------------------
+function noop() {}
+function heartbeat() {
+  this.isAlive = true;
+}
+
+setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) return ws.terminate();
+    ws.isAlive = false;
+    ws.ping(noop);
+  });
+}, 30000); // a cada 30 segundos
+
+// -------------------- Uploads --------------------
 const uploadsDir = path.join(__dirname, "uploads");
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
 app.use("/uploads", express.static(uploadsDir));
 
-// URL pública do backend na Render
+// -------------------- Configuração --------------------
 const BASE_URL = process.env.BASE_URL || "https://tkback.onrender.com";
 
 const usersFile = path.join(__dirname, "users.json");
@@ -50,8 +64,13 @@ function atualizarLista() {
   });
 }
 
+// -------------------- WebSocket --------------------
 wss.on("connection", (ws) => {
   console.log("Novo cliente conectado!");
+
+  ws.isAlive = true;
+  ws.on("pong", heartbeat);
+
   ws.send(JSON.stringify({ type: "login_required" }));
 
   ws.on("message", (data) => {
@@ -70,7 +89,8 @@ wss.on("connection", (ws) => {
         return ws.send(JSON.stringify({ type: "error", text: "Nome inválido (máx 28 caracteres)" }));
       }
 
-      if (avatarFile) {
+      // Avatar enviado como arquivo
+      if (avatarFile && avatarFile.data && avatarFile.name) {
         const avatarPath = path.join(uploadsDir, "avatar_" + username + path.extname(avatarFile.name));
         fs.writeFileSync(avatarPath, Buffer.from(avatarFile.data, "base64"));
         avatar = `${BASE_URL}/uploads/${path.basename(avatarPath)}`;
@@ -81,9 +101,9 @@ wss.on("connection", (ws) => {
           return ws.send(JSON.stringify({ type: "error", text: "Senha incorreta para este usuário!" }));
         }
       } else {
-        usuarios[username] = { 
-          password, 
-          avatar: avatar || "./img/redetekiIcon2.png" 
+        usuarios[username] = {
+          password,
+          avatar: avatar || "./img/redetekiIcon2.png"
         };
         salvarUsuarios();
       }
@@ -91,7 +111,8 @@ wss.on("connection", (ws) => {
       conectados.set(ws, { username, avatar: usuarios[username].avatar });
       ws.send(JSON.stringify({ type: "login_success", username }));
 
-      mensagens.forEach((m) => ws.send(JSON.stringify(m)));
+      // Envia últimas 50 mensagens
+      mensagens.slice(-50).forEach((m) => ws.send(JSON.stringify(m)));
       atualizarLista();
       return;
     }
@@ -105,7 +126,9 @@ wss.on("connection", (ws) => {
       const { username, avatar } = conectados.get(ws);
       if (!msg.text || msg.text.length > 70) return;
 
-      let texto = msg.text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
+      // Proteção contra HTML malicioso
+      const textoSeguro = msg.text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      let texto = textoSeguro.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
 
       const mensagem = { type: "message", text: `${username}: ${texto}`, avatar };
       mensagens.push(mensagem);
@@ -135,10 +158,10 @@ wss.on("connection", (ws) => {
         conteudo = `<a href="${fileUrl}" target="_blank">${msg.name}</a>`;
       }
 
-      const mensagem = { 
-        type: "message", 
-        text: `${username}: ${conteudo}`, 
-        avatar 
+      const mensagem = {
+        type: "message",
+        text: `${username}: ${conteudo}`,
+        avatar
       };
       mensagens.push(mensagem);
       salvarMensagens();
@@ -158,7 +181,8 @@ wss.on("connection", (ws) => {
   });
 });
 
+// -------------------- Servidor --------------------
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Servidor roddando na porta ${PORT}`);
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
