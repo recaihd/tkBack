@@ -30,7 +30,7 @@ if (!fs.existsSync(uploadsDir)) {
 app.use("/uploads", express.static(uploadsDir));
 
 // -------------------- Configuração --------------------
-const BASE_URL = process.env.BASE_URL || "https://tkback.onrender.com";
+const BASE_URL = process.env.BASE_URL || "https://tk-back-2kp3.vercel.app/";
 
 const usersFile = path.join(__dirname, "users.json");
 const messagesFile = path.join(__dirname, "messages.json");
